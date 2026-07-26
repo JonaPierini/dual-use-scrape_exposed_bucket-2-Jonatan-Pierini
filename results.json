@@ -1,0 +1,9 @@
+{
+    "scraper": {
+        "depth": 3,
+        "discovered_buckets": []
+    },
+    "checker": {
+        "buckets": []
+    }
+}
