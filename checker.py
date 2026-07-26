@@ -1,65 +1,68 @@
-import requests
 import json
-import xml.etree.ElementTree as ET
+import requests
+
 
 def check_buckets():
+  try:
+    with open("results.json", "r") as f:
+      data = json.load(f)
+      buckets = data.get("scraper", {}).get("discovered_buckets", [])
+  except FileNotFoundError:
+    print("results.json no encontrado. Ejecuta primero scraper.py")
+    return
+
+  checked_buckets = []
+
+  for b in buckets:
+    bucket_name = b["bucket_name"]
+    endpoint = b["endpoint"]
+
+    list_status = "failed"
+    read_status = "failed"
+
+    # Intento de list objects anónimo
     try:
-        with open("results.json", "r") as f:
-            data = json.load(f)
-    except FileNotFoundError:
-        print("Ejecuta scraper.py primero.")
-        return
+      list_url = f"{endpoint}/{bucket_name}?list-type=2"
+      res = requests.get(list_url, timeout=3)
+      if res.status_code in [200, 403]:
+        list_status = "success"
+    except Exception:
+      pass
 
-    summary_buckets = []
+    # Intento de read object anónimo (archivo de prueba común)
+    try:
+      read_url = f"{endpoint}/{bucket_name}/test.txt"
+      res = requests.get(read_url, timeout=3)
+      if res.status_code == 200:
+        read_status = "success"
+    except Exception:
+      pass
 
-    for b in data["scraper"]["discovered_buckets"]:
-        bucket = b["bucket_name"]
-        endpoint = b["endpoint"]
-        list_status = "failed"
-        read_status = "failed"
+    checked_buckets.append({
+        "bucket_name": bucket_name,
+        "endpoint": endpoint,
+        "list_objects": list_status,
+        "read_object": read_status,
+    })
 
-        # 1. Intentar List Objects anónimo
-        list_url = f"{endpoint}/{bucket}"
-        try:
-            res = requests.get(list_url, timeout=5)
-            if res.status_code == 200:
-                list_status = "success"
-                
-                # 2. Intentar Read Object de algún archivo encontrado en el XML
-                try:
-                    root = ET.fromstring(res.text)
-                    keys = root.findall('.//{http://s3.amazonaws.com/doc/2006-03-01/}Key')
-                    if not keys:
-                        keys = root.findall('.//Key')
+  # Generar summary.json con la estructura exacta solicitada
+  summary_data = {"buckets": checked_buckets}
+  with open("summary.json", "w") as f:
+    json.dump(summary_data, f, indent=4)
+  print("summary.json generado exitosamente.")
 
-                    if keys:
-                        first_file = keys[0].text
-                        read_url = f"{endpoint}/{bucket}/{first_file}"
-                        read_res = requests.get(read_url, timeout=5)
-                        if read_res.status_code == 200:
-                            read_status = "success"
-                except Exception as xml_e:
-                    print(f"Error parseando XML del bucket {bucket}: {xml_e}")
-
-        except Exception as e:
-            print(f"Error conectando al bucket {bucket}: {e}")
-
-        summary_buckets.append({
-            "bucket_name": bucket,
-            "endpoint": endpoint,
-            "list_objects": list_status,
-            "read_object": read_status
-        })
-
-    data["checker"]["buckets"] = summary_buckets
+  # Actualizar la sección checker dentro de results.json
+  try:
+    with open("results.json", "r") as f:
+      results = json.load(f)
+    results["checker"] = {"buckets": checked_buckets}
     with open("results.json", "w") as f:
-        json.dump(data, f, indent=4)
+      json.dump(results, f, indent=4)
+    print("results.json actualizado con los resultados del checker.")
+  except Exception as e:
+    print(f"Error actualizando results.json: {e}")
 
-    summary = {"buckets": summary_buckets}
-    with open("summary.json", "w") as f:
-        json.dump(summary, f, indent=4)
-
-    print("Checker finalizado. summary.json creado.")
 
 if __name__ == "__main__":
-    check_buckets()
+  print("Iniciando checker...")
+  check_buckets()
